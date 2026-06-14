@@ -3,8 +3,12 @@ services:
     build: .
     ports:
       - "8081:80"            # 호스트 8081 -> 컨테이너 80 (8080은 다른 프로젝트와 충돌 회피)
+    # 실제 카메라 URL·계정은 .env 로 주입(.env.sample 복사). 파일 없으면 무시(required: false).
+    env_file:
+      - path: .env
+        required: false
     volumes:
-      - ./config.yaml:/app/config.yaml   # 설정 파일을 호스트에서 직접 편집 가능하게 마운트(기본값)
+      - ./config.yaml:/app/config.yaml   # 설정 파일을 호스트에서 직접 편집 가능하게 마운트(기본값/샘플)
       - ./_hls:/tmp/rtsp_live            # HLS 출력 디렉터리(config의 output_dir와 일치시킬 것)
       - ./data:/app/data                 # 웹 UI에서 저장하는 런타임 설정(settings.json) 영속화
     # environment:

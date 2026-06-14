@@ -27,9 +27,12 @@ config.yaml    기본값(커밋). 런타임 변경은 data/settings.json(gitigno
 ```
 
 ## 설정 모델 (중요)
-- **우선순위**: 내장 기본값 ← `config.yaml`(커밋된 기본값) ← `data/settings.json`(런타임, gitignore).
+- **우선순위**: 내장 기본값 ← `config.yaml`(커밋 샘플) ← `.env`(환경변수) ← `data/settings.json`(웹 UI 런타임).
+- **비밀/운영값은 절대 커밋 금지**: 실제 카메라 URL·계정은 `.env`(gitignore) 또는 웹 UI에. `config.yaml`
+  은 샘플(예: `192.0.2.x`)만 둔다. `.env.sample`이 커밋된 예시. 키: `RLV_STREAM_<ID>_URL`,
+  `RLV_STREAMS`(JSON), `RLV_AUTH_*`, `RLV_ENCODER`, `RLV_FFMPEG`(`config._env_overrides`/`_env_streams`).
 - 웹 설정 페이지는 `POST /api/config` → `config.save()`로 **`data/settings.json`에만** 기록.
-  `config.yaml`은 절대 런타임에 수정하지 않는다. `data/settings.json`은 커밋 금지(.gitignore).
+  `config.yaml`은 런타임에 수정하지 않는다. `data/settings.json`·`.env`는 커밋 금지(.gitignore).
 - 편집 가능 키는 `config.EDITABLE_KEYS` 참조. 비밀번호는 API 응답에 노출 금지(`password_set`만).
 
 ## 핵심 규칙 / 함정

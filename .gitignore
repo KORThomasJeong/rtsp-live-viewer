@@ -9,6 +9,11 @@ __pycache__/
 venv/
 env/
 
+# 환경 비밀값(실제 카메라 URL·계정). .env.sample 만 커밋한다.
+.env
+.env.*
+!.env.sample
+
 # 런타임 상태/설정(웹 UI에서 저장되는 settings.json 등)
 data/*
 !data/.gitkeep

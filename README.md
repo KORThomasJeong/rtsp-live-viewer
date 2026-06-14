@@ -35,9 +35,12 @@ idle_timeout: 30         # 시청 없음 N초 후 해당 ffmpeg 자동 정지(0=
 output_dir: /tmp/rtsp_live
 auth: { enabled: false, user: admin, password: admin }
 streams:
-  - { id: cam0, name: "채널 0", url: "rtsp://10.10.3.50/0" }
-  - { id: cam1, name: "채널 1", url: "rtsp://10.10.3.50/1" }
+  - { id: cam0, name: "Camera 0", url: "rtsp://192.0.2.10/0" }   # 샘플 URL
+  - { id: cam1, name: "Camera 1", url: "rtsp://192.0.2.10/1" }
 ```
+> 위 URL은 **샘플**(192.0.2.x = 문서용 예약 대역)이다. 실제 카메라 주소는 `.env`(아래)나
+> 웹 설정 페이지에서 지정한다 — `config.yaml`에 실제 값을 하드코딩하지 말 것.
+
 - **스트림 추가**: `streams:`에 `{ id, name, url }` 항목을 추가(=화면 타일 1개). `id`는 고유.
 - `encoder: auto`는 가용한 HW 인코더(VideoToolbox→NVENC→QSV)를 우선 선택, 없으면 `libx264`.
 - 화면의 "URL로 재생" 입력으로 설정에 없는 임시 스트림도 즉석 재생 가능.
@@ -72,14 +75,27 @@ streams:
 설정 변경은 모두 `data/settings.json`에 저장된다. 도커 사용 시 `./data:/app/data` 볼륨이
 마운트되어 컨테이너를 재생성해도 설정이 유지된다(`RLV_DATA_DIR`로 경로 변경 가능).
 
+### `.env` (비밀값 — 권장)
+실제 카메라 URL·계정은 `config.yaml`(커밋되는 샘플)에 적지 말고 **`.env`** 에 둔다. `.env` 는
+git 에 커밋되지 않으며, `.env.sample` 을 복사해 채운다:
+```bash
+cp .env.sample .env   # 그 후 RLV_STREAM_CAM0_URL 등 실제 값 입력
+```
+적용 우선순위: `config.yaml`(샘플) ← `.env`(환경변수) ← 웹 설정(`data/settings.json`).
+도커는 `docker-compose.yml` 의 `env_file: .env` 로 자동 주입(파일 없으면 무시).
+
 ### 환경변수 override
 | 변수 | 용도 |
 |---|---|
-| `RLV_PORT` | 리슨 포트(기본 80) |
-| `RLV_CONFIG` | 설정 파일 경로(기본 프로젝트 루트 `config.yaml`) |
+| `RLV_STREAM_<ID>_URL` | 해당 id 스트림의 URL 덮어쓰기(예 `RLV_STREAM_CAM0_URL`) |
+| `RLV_STREAM_<ID>_NAME` | 해당 id 스트림의 표시 이름 덮어쓰기 |
+| `RLV_STREAMS` | 스트림 전체를 JSON 배열로 정의(per-id 보다 우선) |
+| `RLV_AUTH_ENABLED` / `RLV_AUTH_USER` / `RLV_AUTH_PASSWORD` | 인증 on/off·계정·비밀번호 |
 | `RLV_ENCODER` | 인코더 강제 지정 |
-| `RLV_DATA_DIR` | 런타임 설정(`settings.json`) 저장 디렉터리(기본 `data/`) |
-| `PBOX_FFMPEG` | ffmpeg 바이너리 경로(기본 `ffmpeg`) |
+| `RLV_PORT` | 네이티브 실행 리슨 포트(기본 80) |
+| `RLV_CONFIG` | 설정 파일 경로(기본 `config.yaml`) |
+| `RLV_DATA_DIR` | 런타임 설정(`settings.json`) 디렉터리(기본 `data/`) |
+| `RLV_FFMPEG` / `PBOX_FFMPEG` | ffmpeg 바이너리 경로(기본 `ffmpeg`) |
 
 ## 인코더 & 성능 / 배포 가이드
 

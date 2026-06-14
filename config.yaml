@@ -1,22 +1,29 @@
-# rtsp-live-viewer 설정 파일
-# 환경변수 RLV_CONFIG 로 다른 경로를 지정할 수 있다(기본: 프로젝트 루트의 이 파일).
+# rtsp-live-viewer 설정 파일 (커밋되는 "샘플 기본값")
+#
+# 실제 카메라 주소·계정 같은 운영값은 여기 하드코딩하지 말 것.
+# → 로컬 `.env`(git 미추적, `.env.sample` 복사) 또는 웹 설정 페이지에서 지정한다.
+# 적용 우선순위(낮음→높음): 이 파일 ← .env(환경변수) ← 웹 설정(data/settings.json).
+# 환경변수 RLV_CONFIG 로 이 파일 경로를 바꿀 수 있다.
 
-encoder: auto            # 인코더 선택: auto|libx264|h264_videotoolbox|h264_nvenc|h264_qsv
-                         #   auto      = 환경에서 사용 가능한 HW 인코더 자동 탐지, 없으면 libx264
-                         #   libx264   = 소프트웨어(CPU) 인코딩, 어디서나 동작
-                         #   h264_videotoolbox = macOS HW 인코딩(컨테이너 불가, Mac 네이티브만)
-                         #   h264_nvenc        = NVIDIA GPU HW 인코딩
-                         #   h264_qsv          = Intel Quick Sync HW 인코딩
-                         # 환경변수 RLV_ENCODER 로 override 가능.
-height: 720              # 출력 세로 해상도(px). 0이면 원본 해상도 그대로 사용.
-fps: 30                  # 출력 프레임레이트(frames/sec).
-video_bitrate: 2500k     # 비디오 비트레이트. 시청자당 대역폭 ≈ 이 값.
-hls_time: 2              # HLS 세그먼트 길이(초). 작을수록 지연 짧음/요청 증가.
-idle_timeout: 30         # 시청자가 없을 때 N초 후 ffmpeg 자동 정지(0=비활성, 항상 유지).
-output_dir: /tmp/rtsp_live  # HLS 세그먼트(.m3u8/.ts) 출력 디렉터리.
+encoder: auto            # auto|libx264|h264_videotoolbox|h264_nvenc|h264_qsv (RLV_ENCODER로 override)
+height: 720              # 출력 세로 해상도(px). 0=원본 유지.
+fps: 30                  # 출력 프레임레이트.
+video_bitrate: 2500k     # 비디오 비트레이트(시청자당 대역폭 ≈ 이 값).
+audio_mode: aac          # aac(재인코딩) | copy(원본 통과) | none(무음)
+audio_bitrate: 128k      # audio_mode=aac일 때 오디오 비트레이트.
+hls_time: 2              # HLS 세그먼트 길이(초).
+hls_list_size: 6         # 재생목록에 유지할 세그먼트 수.
+buffer_seconds: 6        # 플레이어 버퍼(초)=hls.js liveSyncDuration. 작을수록 지연↓/끊김 위험↑.
+catch_up_rate: 1.2       # 라이브 따라잡기 배속(maxLiveSyncPlaybackRate).
+grid_columns: auto       # 뷰어 그리드 열 수: auto|1|2|3|4
+idle_timeout: 30         # 시청자 없을 때 N초 후 ffmpeg 자동 정지(0=비활성).
+output_dir: /tmp/rtsp_live  # HLS 출력 디렉터리.
 
-auth: { enabled: false, user: admin, password: admin }  # 기본 인증(HTTP Basic). enabled=true면 user/password 적용.
+# 인증(HTTP Digest). 실제 비밀번호는 .env(RLV_AUTH_PASSWORD) 또는 웹 설정에서 지정.
+auth: { enabled: false, user: admin, password: "" }
 
-streams:                 # 채널 목록. 동시 2~4채널 재생 권장.
-  - { id: cam0, name: "채널 0", url: "rtsp://10.10.3.50/0" }  # id=내부 식별자/URL 경로, name=표시 이름, url=소스(RTSP/RTMP/HTTP)
-  - { id: cam1, name: "채널 1", url: "rtsp://10.10.3.50/1" }
+# 채널 목록(샘플). 실제 URL은 .env 의 RLV_STREAM_<ID>_URL 로 주입하거나 웹 설정에서 변경.
+# (192.0.2.x 는 문서용 예약 대역 TEST-NET-1)
+streams:
+  - { id: cam0, name: "Camera 0", url: "rtsp://192.0.2.10/0", enabled: true }
+  - { id: cam1, name: "Camera 1", url: "rtsp://192.0.2.10/1", enabled: true }

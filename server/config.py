@@ -1,23 +1,35 @@
 """Configuration loader for rtsp-live-viewer.
 
-Reads config.yaml (project root by default, overridable via RLV_CONFIG) as the
-committed defaults, then merges data/settings.json on top of it as the runtime
-override edited from the web UI. A few values can also be overridden by
-environment variables so deployments don't have to edit anything.
+Reads config.yaml (committed, sample defaults) and layers environment variables
+(from a local, git-ignored .env) and the web-UI runtime file on top. Real
+deployment values (camera URLs, credentials) live in .env / the web UI — never
+hardcode them in committed files.
 
-Precedence (low -> high): defaults <- config.yaml <- data/settings.json <- env.
+Precedence (low -> high): defaults <- config.yaml <- .env (environment) <- data/settings.json.
+The web UI (settings.json) wins so live edits stick; .env seeds real values
+without committing them.
 """
 import json
 import os
+import re
 import tempfile
 
 import yaml
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # dotenv is optional; env vars still work without a .env file
+    def load_dotenv(*_a, **_k):
+        return False
+
 # Project root is the parent of this server/ package.
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Load .env (does not override variables already set in the real environment).
+load_dotenv(os.environ.get("RLV_ENV") or os.path.join(ROOT_DIR, ".env"))
+
 # ffmpeg binary path is shared across modules (encoders.py, streams.py).
-FFMPEG = os.environ.get("PBOX_FFMPEG", "ffmpeg")
+FFMPEG = os.environ.get("RLV_FFMPEG") or os.environ.get("PBOX_FFMPEG") or "ffmpeg"
 
 _DEFAULTS = {
     "encoder": "auto",
@@ -33,7 +45,9 @@ _DEFAULTS = {
     "grid_columns": "auto",    # "auto"|1|2|3|4
     "idle_timeout": 30,
     "output_dir": "/tmp/rtsp_live",
-    "auth": {"enabled": False, "user": "admin", "password": "admin"},
+    # No hardcoded credential: password comes from .env (RLV_AUTH_PASSWORD) or
+    # the web UI. Auth is off by default anyway.
+    "auth": {"enabled": False, "user": "admin", "password": ""},
     "streams": [],
 }
 
@@ -122,43 +136,83 @@ def _clean_streams(raw):
     return result
 
 
-def load():
-    """Merge defaults <- config.yaml <- data/settings.json, then env overrides.
+def _env_overrides():
+    """Scalar/auth overrides pulled from environment variables (.env)."""
+    out = {}
+    if os.environ.get("RLV_ENCODER"):
+        out["encoder"] = os.environ["RLV_ENCODER"]
+    auth = {}
+    enabled = os.environ.get("RLV_AUTH_ENABLED")
+    if enabled:
+        auth["enabled"] = enabled.strip().lower() in ("1", "true", "yes", "on")
+    if os.environ.get("RLV_AUTH_USER"):
+        auth["user"] = os.environ["RLV_AUTH_USER"]
+    if os.environ.get("RLV_AUTH_PASSWORD"):
+        auth["password"] = os.environ["RLV_AUTH_PASSWORD"]
+    if auth:
+        out["auth"] = auth
+    return out
 
-    Deep merge for auth (dict). For streams (list), settings.json wins entirely
-    when present, otherwise config.yaml's list is used.
+
+def _env_streams(base):
+    """Apply stream overrides from env onto a base list (from config.yaml).
+
+    RLV_STREAMS (JSON) replaces the list entirely. Otherwise per-id overrides
+    RLV_STREAM_<ID>_URL / RLV_STREAM_<ID>_NAME patch matching entries (ID is the
+    stream id upper-cased with non-alphanumerics turned into '_').
+    """
+    if os.environ.get("RLV_STREAMS"):
+        try:
+            return _clean_streams(json.loads(os.environ["RLV_STREAMS"]))
+        except ValueError:
+            pass
+    result = []
+    for s in base:
+        key = re.sub(r"[^A-Z0-9]", "_", s["id"].upper())
+        s2 = dict(s)
+        url = os.environ.get("RLV_STREAM_%s_URL" % key)
+        name = os.environ.get("RLV_STREAM_%s_NAME" % key)
+        if url:
+            s2["url"] = url
+        if name:
+            s2["name"] = name
+        result.append(s2)
+    return result
+
+
+def load():
+    """Merge defaults <- config.yaml <- .env (env) <- data/settings.json.
+
+    Deep merge for auth (dict). For streams: settings.json (web UI) wins entirely
+    when present; otherwise config.yaml's list with .env per-id overrides applied.
     """
     data = dict(_DEFAULTS)
     yaml_data = _read_yaml()
+    env_data = _env_overrides()
     settings = _read_settings()
 
     # Flat keys: later sources override earlier ones.
-    for src in (yaml_data, settings):
+    for src in (yaml_data, env_data, settings):
         for k, v in src.items():
             if k in ("auth", "streams"):
                 continue
             data[k] = v
 
-    # auth: deep merge across all three layers.
+    # auth: deep merge across all layers (settings/UI highest).
     auth = dict(_DEFAULTS["auth"])
-    for src in (yaml_data, settings):
+    for src in (yaml_data, env_data, settings):
         if isinstance(src.get("auth"), dict):
             auth.update(src["auth"])
     data["auth"] = Config(auth)
 
-    # streams: settings.json wins when present, else config.yaml, else default.
+    # streams: web UI wins entirely; else config.yaml + .env per-id overrides.
     if isinstance(settings.get("streams"), list):
         data["streams"] = _clean_streams(settings["streams"])
-    elif isinstance(yaml_data.get("streams"), list):
-        data["streams"] = _clean_streams(yaml_data["streams"])
     else:
-        data["streams"] = []
+        base = _clean_streams(yaml_data["streams"]) if isinstance(yaml_data.get("streams"), list) else []
+        data["streams"] = _env_streams(base)
 
-    # Environment overrides.
-    if os.environ.get("RLV_ENCODER"):
-        data["encoder"] = os.environ["RLV_ENCODER"]
     data["ffmpeg"] = FFMPEG
-
     return Config(data)
 
 

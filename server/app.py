@@ -1,13 +1,15 @@
 """Flask app for rtsp-live-viewer.
 
 Serves the web/ UI and a small JSON API that drives the per-channel ffmpeg
-transcoders in streams.py. HLS media is served under /hls/ and is exempt from
-auth so the browser's hls.js can fetch segments freely.
+transcoders in streams.py. HLS media is served under /hls/; when auth is
+enabled it is protected too (browsers reuse Digest credentials per realm).
 """
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 
 from flask import Flask, Response, request, send_from_directory
 
@@ -21,9 +23,12 @@ _ALL_ENCODERS = ["libx264", "h264_videotoolbox", "h264_nvenc", "h264_qsv"]
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.environ.get("RLV_WEB_DIR", os.path.join(BASE_DIR, "web"))
 
-# Digest auth parameters (mirrors pbox-portal-emulator).
+# Digest auth parameters. The nonce is randomised per process start (instead of
+# a fixed value) so digest responses can't be trivially replayed across restarts.
+# Note: this is a lightweight LAN-oriented guard, not a substitute for HTTPS.
+# For real exposure, put the app behind a TLS reverse proxy.
 REALM = "rtsp-live-viewer"
-NONCE = "tick"
+NONCE = secrets.token_hex(16)
 
 app = Flask(__name__, static_folder=None)
 
@@ -58,7 +63,10 @@ def _auth_ok():
         )
     else:
         resp = _md5("%s:%s:%s" % (ha1, d.get("nonce", ""), ha2))
-    return resp == d.get("response")
+    # Constant-time compare, and require the client to echo our own nonce.
+    if d.get("nonce") != NONCE:
+        return False
+    return hmac.compare_digest(resp, d.get("response") or "")
 
 
 def _challenge():
@@ -72,10 +80,9 @@ def _challenge():
 
 @app.before_request
 def _require_auth():
-    # HLS media is exempt so <video>/hls.js can fetch segments without
-    # re-negotiating digest auth on every request.
-    if request.path.startswith("/hls/"):
-        return None
+    # HLS media is NOT exempt: when auth is enabled, segment requests must also
+    # authenticate. Browsers reuse Digest credentials within the realm, so
+    # hls.js fetches authenticate transparently without per-segment prompts.
     if _cfg and _cfg.auth.get("enabled") and not _auth_ok():
         return _challenge()
     return None

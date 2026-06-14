@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RTSP Live Viewer</title>
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <!-- Top bar -->
+  <header class="topbar">
+    <h1>RTSP Live Viewer</h1>
+    <span id="encoderBadge" class="encoder-badge" hidden></span>
+    <span class="spacer"></span>
+    <form id="urlForm" class="url-form" autocomplete="off">
+      <input id="urlInput" type="text" placeholder="rtsp://... URL로 재생"
+             aria-label="재생할 RTSP URL" />
+      <button type="submit" aria-label="URL 재생">재생</button>
+    </form>
+    <button id="refreshBtn" class="secondary" aria-label="스트림 목록 새로고침">새로고침</button>
+    <a id="settingsLink" class="settings-link" href="settings.html" aria-label="설정 페이지로 이동">⚙ 설정</a>
+  </header>
+
+  <!-- Stream grid -->
+  <main id="grid" class="grid" aria-live="polite"></main>
+
+  <!-- Focus modal -->
+  <div id="focus" class="focus" role="dialog" aria-modal="true" aria-label="확대 보기">
+    <div class="focus-inner">
+      <div class="focus-head">
+        <span id="focusName" class="name"></span>
+        <button id="focusClose" class="secondary close" aria-label="확대 보기 닫기">닫기 (ESC)</button>
+      </div>
+      <video id="focusVideo" controls autoplay muted playsinline></video>
+    </div>
+  </div>
+
+  <script src="js/hls.min.js"></script>
+  <script>
+  // ===== RTSP Live Viewer - app (vanilla JS) =====
+  (function () {
+    "use strict";
+
+    // tiles: id -> { stream, root, video, statusEl, overlayMsg, hls, retried }
+    const tiles = new Map();
+    const gridEl = document.getElementById("grid");
+    const encoderBadge = document.getElementById("encoderBadge");
+
+    // current config (from /api/config); used for hls.js tuning & grid layout
+    let config = null;
+
+    // Build hls.js options from the active config (buffer/catch-up based).
+    // NOTE: liveSyncDuration and liveSyncDurationCount are mutually exclusive,
+    // so we only set the duration form.
+    function hlsOptions() {
+      const buf = (config && Number(config.buffer_seconds)) || 6;
+      const rate = (config && Number(config.catch_up_rate)) || 1.2;
+      return {
+        liveSyncDuration: buf,
+        maxLiveSyncPlaybackRate: rate,
+        liveMaxLatencyDuration: buf * 3,
+        backBufferLength: 30,
+      };
+    }
+
+    // Apply grid_columns: "auto" -> responsive (CSS default), number -> fixed.
+    function applyGridColumns() {
+      const cols = config && config.grid_columns;
+      if (cols && cols !== "auto" && !isNaN(Number(cols))) {
+        gridEl.classList.add("fixed-cols");
+        gridEl.style.gridTemplateColumns = "repeat(" + Number(cols) + ", 1fr)";
+      } else {
+        gridEl.classList.remove("fixed-cols");
+        gridEl.style.gridTemplateColumns = "";
+      }
+    }
+
+    // ---- Status helpers ----
+    // state: connecting | playing | error | stopped
+    const STATUS_TEXT = {
+      connecting: "연결 중...",
+      playing: "재생 중",
+      error: "오류",
+      stopped: "정지됨",
+    };
+
+    function setStatus(id, state, msg) {
+      const t = tiles.get(id);
+      if (!t) return;
+      const label = msg || STATUS_TEXT[state] || state;
+      t.statusEl.className = "status s-" + state;
+      t.statusEl.querySelector(".text").textContent = label;
+      t.root.classList.toggle("is-connecting", state === "connecting");
+      t.root.classList.toggle("is-error", state === "error");
+      if (t.overlayMsg) t.overlayMsg.textContent = label;
+    }
+
+    // ---- Fetch config (streams + tuning + encoder info) ----
+    async function fetchConfig() {
+      const res = await fetch("/api/config");
+      if (!res.ok) throw new Error("config " + res.status);
+      return res.json();
+    }
+
+    // ---- Build one tile ----
+    function makeTile(stream) {
+      const root = document.createElement("section");
+      root.className = "tile";
+      root.dataset.id = stream.id;
+
+      const wrap = document.createElement("div");
+      wrap.className = "video-wrap";
+      wrap.title = "클릭하여 확대";
+
+      const video = document.createElement("video");
+      video.controls = true;
+      video.autoplay = true;
+      video.muted = true;
+      video.playsInline = true;
+
+      const overlay = document.createElement("div");
+      overlay.className = "overlay";
+      const spinner = document.createElement("div");
+      spinner.className = "spinner";
+      const overlayMsg = document.createElement("div");
+      overlayMsg.className = "overlay-msg";
+      overlay.append(spinner, overlayMsg);
+
+      wrap.append(video, overlay);
+      // tile click -> focus (ignore clicks on native video controls area is hard;
+      // use the wrap region around video for zoom)
+      wrap.addEventListener("click", function (e) {
+        // avoid hijacking when user interacts with video controls
+        if (e.target === video) return;
+        focusTile(stream.id);
+      });
+
+      const bar = document.createElement("div");
+      bar.className = "bar";
+
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = stream.name || stream.id;
+
+      const statusEl = document.createElement("span");
+      statusEl.className = "status s-stopped";
+      statusEl.innerHTML = '<span class="dot"></span><span class="text">정지됨</span>';
+
+      const controls = document.createElement("div");
+      controls.className = "controls";
+      const playBtn = document.createElement("button");
+      playBtn.textContent = "재생";
+      playBtn.setAttribute("aria-label", name.textContent + " 재생");
+      playBtn.addEventListener("click", function () { playStream(stream.id); });
+      const stopBtn = document.createElement("button");
+      stopBtn.className = "danger";
+      stopBtn.textContent = "정지";
+      stopBtn.setAttribute("aria-label", name.textContent + " 정지");
+      stopBtn.addEventListener("click", function () { stopStream(stream.id); });
+      controls.append(playBtn, stopBtn);
+
+      bar.append(name, statusEl, controls);
+      root.append(wrap, bar);
+      gridEl.append(root);
+
+      tiles.set(stream.id, {
+        stream: stream,
+        root: root,
+        video: video,
+        statusEl: statusEl,
+        overlayMsg: overlayMsg,
+        hls: null,
+        retried: false,
+      });
+    }
+
+    // ---- Attach HLS playlist to a tile's video ----
+    function attachHls(id, playlist) {
+      const t = tiles.get(id);
+      if (!t) return;
+      destroyHls(t);
+
+      const src = playlist + (playlist.indexOf("?") === -1 ? "?" : "&") + "_=" + Date.now();
+      const video = t.video;
+      setStatus(id, "connecting");
+
+      if (window.Hls && Hls.isSupported()) {
+        const hls = new Hls(hlsOptions());
+        t.hls = hls;
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+          video.play().catch(function () { /* autoplay may need a gesture */ });
+          setStatus(id, "playing");
+        });
+        hls.on(Hls.Events.ERROR, function (_evt, data) {
+          if (!data || !data.fatal) return;
+          // one delayed retry on a fatal error, then give up
+          if (!t.retried) {
+            t.retried = true;
+            setStatus(id, "connecting", "재연결 중...");
+            setTimeout(function () { attachHls(id, playlist); }, 1500);
+          } else {
+            setStatus(id, "error", "스트림 오류");
+            destroyHls(t);
+          }
+        });
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        // Safari native HLS
+        video.src = src;
+        video.addEventListener("loadedmetadata", function onMeta() {
+          video.removeEventListener("loadedmetadata", onMeta);
+          video.play().catch(function () {});
+          setStatus(id, "playing");
+        });
+        video.addEventListener("error", function onErr() {
+          video.removeEventListener("error", onErr);
+          setStatus(id, "error", "재생 불가");
+        });
+      } else {
+        setStatus(id, "error", "HLS 미지원 브라우저");
+      }
+    }
+
+    function destroyHls(t) {
+      if (t && t.hls) {
+        try { t.hls.destroy(); } catch (e) {}
+        t.hls = null;
+      }
+    }
+
+    // ---- Start playback for a stream ----
+    async function playStream(id) {
+      const t = tiles.get(id);
+      if (!t) return;
+      t.retried = false;
+      setStatus(id, "connecting");
+      try {
+        const res = await fetch("/api/streams/" + encodeURIComponent(id) + "/start");
+        const data = await res.json();
+        if (data && data.ok && data.playlist) {
+          attachHls(id, data.playlist);
+        } else {
+          setStatus(id, "error", (data && data.error) || "시작 실패");
+        }
+      } catch (e) {
+        setStatus(id, "error", "요청 실패");
+      }
+    }
+
+    // ---- Stop playback ----
+    async function stopStream(id) {
+      const t = tiles.get(id);
+      if (!t) return;
+      destroyHls(t);
+      try { t.video.removeAttribute("src"); t.video.load(); } catch (e) {}
+      setStatus(id, "stopped");
+      try {
+        await fetch("/api/streams/" + encodeURIComponent(id) + "/stop");
+      } catch (e) { /* ignore network errors on stop */ }
+    }
+
+    // ---- Focus modal (single enlarged view) ----
+    const focusEl = document.getElementById("focus");
+    const focusVideo = document.getElementById("focusVideo");
+    const focusName = document.getElementById("focusName");
+    let focusHls = null;
+
+    function focusTile(id) {
+      const t = tiles.get(id);
+      if (!t) return;
+      focusName.textContent = t.stream.name || id;
+
+      // mirror the tile's current source into the focus video
+      if (focusHls) { try { focusHls.destroy(); } catch (e) {} focusHls = null; }
+      const src = t.video.currentSrc || t.video.src;
+
+      if (src && window.Hls && Hls.isSupported() && t.hls) {
+        focusHls = new Hls(hlsOptions());
+        focusHls.loadSource(src);
+        focusHls.attachMedia(focusVideo);
+        focusHls.on(Hls.Events.MANIFEST_PARSED, function () {
+          focusVideo.play().catch(function () {});
+        });
+      } else if (src) {
+        focusVideo.src = src;
+        focusVideo.play().catch(function () {});
+      } else {
+        focusVideo.removeAttribute("src");
+      }
+      focusEl.classList.add("open");
+    }
+
+    function closeFocus() {
+      focusEl.classList.remove("open");
+      if (focusHls) { try { focusHls.destroy(); } catch (e) {} focusHls = null; }
+      try { focusVideo.pause(); focusVideo.removeAttribute("src"); focusVideo.load(); } catch (e) {}
+    }
+
+    document.getElementById("focusClose").addEventListener("click", closeFocus);
+    focusEl.addEventListener("click", function (e) {
+      if (e.target === focusEl) closeFocus(); // click backdrop
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && focusEl.classList.contains("open")) closeFocus();
+    });
+
+    // ---- Play an ad-hoc URL ----
+    async function playByUrl(url) {
+      if (!url) return;
+      try {
+        const res = await fetch("/api/play?url=" + encodeURIComponent(url));
+        const data = await res.json();
+        if (data && data.ok && data.playlist) {
+          // synthesize a tile for the ad-hoc stream if not present
+          const id = data.id;
+          if (!tiles.has(id)) {
+            makeTile({ id: id, name: "URL: " + url, url: url, running: true });
+          }
+          playStreamWithPlaylist(id, data.playlist);
+        } else {
+          alert("재생 실패: " + ((data && data.error) || "알 수 없는 오류"));
+        }
+      } catch (e) {
+        alert("요청 실패: " + e.message);
+      }
+    }
+
+    // attach an already-known playlist (used by playByUrl)
+    function playStreamWithPlaylist(id, playlist) {
+      const t = tiles.get(id);
+      if (!t) return;
+      t.retried = false;
+      attachHls(id, playlist);
+    }
+
+    document.getElementById("urlForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      const input = document.getElementById("urlInput");
+      playByUrl(input.value.trim());
+    });
+
+    // ---- Refresh: reload config and auto-play enabled streams ----
+    async function refreshAll() {
+      // tear down existing
+      tiles.forEach(function (t, id) { destroyHls(t); });
+      tiles.clear();
+      gridEl.innerHTML = "";
+      encoderBadge.hidden = true;
+
+      try {
+        config = await fetchConfig();
+      } catch (e) {
+        gridEl.innerHTML = '<div class="empty">설정을 불러오지 못했습니다.</div>';
+        return;
+      }
+
+      // encoder badge shows the currently active encoder
+      const active = config && config.encoders && config.encoders.active;
+      if (active) {
+        encoderBadge.textContent = "encoder: " + active;
+        encoderBadge.hidden = false;
+      }
+
+      applyGridColumns();
+
+      // only enabled streams are shown / auto-played
+      const streams = ((config && config.streams) || []).filter(function (s) {
+        return s && s.enabled;
+      });
+      if (!streams.length) {
+        gridEl.innerHTML = '<div class="empty">활성화된 스트림이 없습니다. <a href="settings.html">설정</a>에서 스트림을 추가/활성화하세요.</div>';
+        return;
+      }
+
+      streams.forEach(makeTile);
+      // auto-play all in parallel; warm-up shows "연결 중..."
+      streams.forEach(function (s) {
+        setStatus(s.id, "connecting");
+        playStream(s.id);
+      });
+    }
+
+    document.getElementById("refreshBtn").addEventListener("click", refreshAll);
+
+    // ---- Boot ----
+    refreshAll();
+  })();
+  </script>
+</body>
+</html>

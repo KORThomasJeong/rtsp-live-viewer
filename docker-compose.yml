@@ -1,0 +1,40 @@
+services:
+  viewer:
+    build: .
+    ports:
+      - "8081:80"            # 호스트 8081 -> 컨테이너 80 (8080은 다른 프로젝트와 충돌 회피)
+    volumes:
+      - ./config.yaml:/app/config.yaml   # 설정 파일을 호스트에서 직접 편집 가능하게 마운트(기본값)
+      - ./_hls:/tmp/rtsp_live            # HLS 출력 디렉터리(config의 output_dir와 일치시킬 것)
+      - ./data:/app/data                 # 웹 UI에서 저장하는 런타임 설정(settings.json) 영속화
+    # environment:
+    #   - RLV_PORT=80
+    #   - RLV_ENCODER=libx264            # 인코더 override
+    #   - RLV_CONFIG=/app/config.yaml
+    #   - RLV_DATA_DIR=/app/data         # 런타임 설정(settings.json) 저장 디렉터리. 위 ./data 볼륨과 일치시킬 것.
+    #   - PBOX_FFMPEG=/usr/bin/ffmpeg    # ffmpeg 바이너리 경로 override
+    restart: unless-stopped
+
+    # ─────────────────────────────────────────────────────────────────────
+    # HW 인코더용 옵션(기본 비활성). 필요한 경우 아래 블록을 주석 해제하라.
+    #
+    # [NVIDIA NVENC] nvidia-container-toolkit 설치 필요. config의 encoder를
+    #   h264_nvenc(또는 RLV_ENCODER=h264_nvenc)로 지정.
+    #   방법 A) gpus 단축 옵션:
+    # gpus: all
+    #   방법 B) runtime + deploy.resources(스웜/일부 환경):
+    # runtime: nvidia
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    #
+    # [Intel QSV] /dev/dri 패스스루 필요. encoder를 h264_qsv로 지정.
+    # devices:
+    #   - "/dev/dri:/dev/dri"
+    #
+    # [Apple VideoToolbox] 컨테이너에서 사용 불가 → Mac 네이티브 실행 필요(README 참고).
+    # ─────────────────────────────────────────────────────────────────────

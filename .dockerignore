@@ -1,0 +1,30 @@
+# Python 캐시/바이트코드
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# 가상환경
+.venv/
+venv/
+env/
+
+# HLS 출력/임시 산출물(이미지에 포함 불필요, 런타임 생성)
+_hls/
+rtsp_live/
+
+# 런타임 설정 상태(이미지에 포함 불필요, 볼륨으로 주입)
+data/
+
+# 문서/스크린샷(런타임 이미지에 불필요)
+docs/
+
+# 버전관리/에디터/OS 메타
+.git/
+.gitignore
+.DS_Store
+.idea/
+.vscode/
+
+# 로그
+*.log

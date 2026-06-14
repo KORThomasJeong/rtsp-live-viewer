@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>설정 · RTSP Live Viewer</title>
+  <link rel="stylesheet" href="css/settings.css" />
+</head>
+<body>
+  <!-- Top bar -->
+  <header class="topbar">
+    <h1>설정</h1>
+    <span class="spacer"></span>
+    <a class="topbar-link" href="index.html" aria-label="뷰어로 돌아가기">← 뷰어로</a>
+  </header>
+
+  <main class="settings-main">
+    <form id="settingsForm" autocomplete="off" novalidate>
+
+      <!-- 1. 스트림 -->
+      <section class="card">
+        <h2>스트림</h2>
+        <p class="help">활성화한 스트림만 뷰어에 타일로 표시되고 자동 재생됩니다. id는 서로 달라야 합니다.</p>
+        <div class="rows-head" aria-hidden="true">
+          <span class="col-enabled">활성</span>
+          <span class="col-id">id</span>
+          <span class="col-name">이름</span>
+          <span class="col-url">URL</span>
+          <span class="col-del"></span>
+        </div>
+        <div id="streamRows" class="stream-rows"></div>
+        <button type="button" id="addStreamBtn" class="secondary">+ 스트림 추가</button>
+        <p id="streamError" class="field-error" role="alert" hidden></p>
+      </section>
+
+      <!-- 2. 인코더 -->
+      <section class="card">
+        <h2>인코더</h2>
+        <p class="help">현재 활성 인코더: <strong id="activeEncoder">-</strong>. 미지원 항목은 선택할 수 없습니다.</p>
+        <div class="field">
+          <label for="encoder">인코더</label>
+          <select id="encoder" name="encoder"></select>
+        </div>
+      </section>
+
+      <!-- 3. 비디오 -->
+      <section class="card">
+        <h2>비디오</h2>
+        <div class="field-grid">
+          <div class="field">
+            <label for="heightSel">해상도(높이)</label>
+            <select id="heightSel">
+              <option value="0">원본</option>
+              <option value="480">480p</option>
+              <option value="720">720p</option>
+              <option value="1080">1080p</option>
+              <option value="custom">사용자 지정</option>
+            </select>
+          </div>
+          <div class="field" id="heightCustomWrap" hidden>
+            <label for="heightCustom">사용자 지정 높이(px)</label>
+            <input id="heightCustom" type="number" min="0" step="1" inputmode="numeric" />
+          </div>
+          <div class="field">
+            <label for="fps">프레임레이트(fps)</label>
+            <input id="fps" name="fps" type="number" min="1" step="1" inputmode="numeric" />
+          </div>
+          <div class="field">
+            <label for="video_bitrate">비디오 비트레이트</label>
+            <input id="video_bitrate" name="video_bitrate" type="text" placeholder="예: 2500k" />
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. 오디오 -->
+      <section class="card">
+        <h2>오디오</h2>
+        <div class="field-grid">
+          <div class="field">
+            <label for="audio_mode">오디오 모드</label>
+            <select id="audio_mode" name="audio_mode">
+              <option value="aac">aac 재인코딩</option>
+              <option value="copy">copy 무변환</option>
+              <option value="none">none 끄기</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="audio_bitrate">오디오 비트레이트</label>
+            <input id="audio_bitrate" name="audio_bitrate" type="text" placeholder="예: 128k" />
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. 지연/버퍼 -->
+      <section class="card">
+        <h2>지연 / 버퍼</h2>
+        <div class="field-grid">
+          <div class="field">
+            <label for="hls_time">HLS 세그먼트 길이(초)</label>
+            <input id="hls_time" name="hls_time" type="number" min="1" step="1" inputmode="numeric" />
+          </div>
+          <div class="field">
+            <label for="hls_list_size">HLS 재생목록 크기</label>
+            <input id="hls_list_size" name="hls_list_size" type="number" min="1" step="1" inputmode="numeric" />
+          </div>
+          <div class="field">
+            <label for="buffer_seconds">버퍼(초)</label>
+            <input id="buffer_seconds" name="buffer_seconds" type="number" min="1" step="1" inputmode="numeric"
+                   aria-describedby="buffer_help" />
+            <span id="buffer_help" class="help">클수록 안정적이지만 지연이 늘어납니다.</span>
+          </div>
+          <div class="field">
+            <label for="catch_up_rate">라이브 따라잡기 배속</label>
+            <input id="catch_up_rate" name="catch_up_rate" type="number" min="1.0" max="2.0" step="0.05"
+                   inputmode="decimal" aria-describedby="catchup_help" />
+            <span id="catchup_help" class="help">라이브를 따라잡는 재생 배속(1.0~2.0). 과하면 음 높낮이가 변할 수 있습니다.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6. 레이아웃 -->
+      <section class="card">
+        <h2>레이아웃</h2>
+        <div class="field">
+          <label for="grid_columns">그리드 열 수</label>
+          <select id="grid_columns" name="grid_columns">
+            <option value="auto">auto (반응형)</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- 7. 자원 -->
+      <section class="card">
+        <h2>자원</h2>
+        <div class="field">
+          <label for="idle_timeout">유휴 타임아웃(초)</label>
+          <input id="idle_timeout" name="idle_timeout" type="number" min="0" step="1" inputmode="numeric"
+                 aria-describedby="idle_help" />
+          <span id="idle_help" class="help">시청자가 없을 때 이 시간 후 스트림을 중지합니다.</span>
+        </div>
+      </section>
+
+      <!-- 8. 인증 -->
+      <section class="card">
+        <h2>인증</h2>
+        <div class="field field-inline">
+          <input id="auth_enabled" name="auth_enabled" type="checkbox" />
+          <label for="auth_enabled">인증 사용</label>
+        </div>
+        <div class="field-grid">
+          <div class="field">
+            <label for="auth_user">사용자명</label>
+            <input id="auth_user" name="auth_user" type="text" autocomplete="username" />
+          </div>
+          <div class="field">
+            <label for="auth_password">비밀번호</label>
+            <input id="auth_password" name="auth_password" type="password" autocomplete="new-password"
+                   placeholder="변경 시에만 입력" aria-describedby="pw_help" />
+            <span id="pw_help" class="help">비워두면 기존 비밀번호가 유지됩니다. 현재 설정됨: <strong id="pwSet">-</strong></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Actions -->
+      <div class="actions">
+        <button type="submit" id="saveBtn">저장</button>
+        <a class="secondary-link" href="index.html">취소</a>
+        <span class="note">일부 변경은 실행 중 스트림을 재시작합니다.</span>
+      </div>
+    </form>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    const form = document.getElementById("settingsForm");
+    const streamRowsEl = document.getElementById("streamRows");
+    const streamErrorEl = document.getElementById("streamError");
+    const toastEl = document.getElementById("toast");
+
+    let config = null;
+    let toastTimer = null;
+
+    // ---- Toast ----
+    function toast(msg, kind) {
+      toastEl.textContent = msg;
+      toastEl.className = "toast show" + (kind ? " " + kind : "");
+      toastEl.hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () {
+        toastEl.classList.remove("show");
+        setTimeout(function () { toastEl.hidden = true; }, 250);
+      }, 4000);
+    }
+
+    // ---- Stream row editor ----
+    function makeStreamRow(stream) {
+      stream = stream || { enabled: true, id: "", name: "", url: "" };
+      const row = document.createElement("div");
+      row.className = "stream-row";
+
+      const enabledCell = document.createElement("span");
+      enabledCell.className = "col-enabled";
+      const enabled = document.createElement("input");
+      enabled.type = "checkbox";
+      enabled.className = "f-enabled";
+      enabled.checked = !!stream.enabled;
+      enabled.setAttribute("aria-label", "스트림 활성화");
+      enabledCell.append(enabled);
+
+      const idCell = document.createElement("span");
+      idCell.className = "col-id";
+      const id = document.createElement("input");
+      id.type = "text";
+      id.className = "f-id";
+      id.value = stream.id || "";
+      id.placeholder = "cam0";
+      id.setAttribute("aria-label", "스트림 id");
+      idCell.append(id);
+
+      const nameCell = document.createElement("span");
+      nameCell.className = "col-name";
+      const name = document.createElement("input");
+      name.type = "text";
+      name.className = "f-name";
+      name.value = stream.name || "";
+      name.placeholder = "채널 이름";
+      name.setAttribute("aria-label", "스트림 이름");
+      nameCell.append(name);
+
+      const urlCell = document.createElement("span");
+      urlCell.className = "col-url";
+      const url = document.createElement("input");
+      url.type = "text";
+      url.className = "f-url";
+      url.value = stream.url || "";
+      url.placeholder = "rtsp://...";
+      url.setAttribute("aria-label", "스트림 URL");
+      urlCell.append(url);
+
+      const delCell = document.createElement("span");
+      delCell.className = "col-del";
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "danger";
+      del.textContent = "삭제";
+      del.setAttribute("aria-label", "이 스트림 삭제");
+      del.addEventListener("click", function () { row.remove(); });
+      delCell.append(del);
+
+      row.append(enabledCell, idCell, nameCell, urlCell, delCell);
+      return row;
+    }
+
+    function addStreamRow(stream) {
+      streamRowsEl.append(makeStreamRow(stream));
+    }
+
+    document.getElementById("addStreamBtn").addEventListener("click", function () {
+      addStreamRow();
+    });
+
+    // collect stream rows -> array; returns null on validation error
+    function collectStreams() {
+      const rows = streamRowsEl.querySelectorAll(".stream-row");
+      const out = [];
+      const seen = Object.create(null);
+      streamErrorEl.hidden = true;
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const id = r.querySelector(".f-id").value.trim();
+        const name = r.querySelector(".f-name").value.trim();
+        const url = r.querySelector(".f-url").value.trim();
+        const enabled = r.querySelector(".f-enabled").checked;
+        if (!id && !name && !url) continue; // skip empty rows
+        if (!id) {
+          streamErrorEl.textContent = (i + 1) + "번째 스트림의 id가 비어 있습니다.";
+          streamErrorEl.hidden = false;
+          return null;
+        }
+        if (seen[id]) {
+          streamErrorEl.textContent = "중복된 id가 있습니다: " + id;
+          streamErrorEl.hidden = false;
+          return null;
+        }
+        seen[id] = true;
+        out.push({ id: id, name: name || id, url: url, enabled: enabled });
+      }
+      return out;
+    }
+
+    // ---- Encoder select ----
+    function buildEncoderSelect(encoders) {
+      const sel = document.getElementById("encoder");
+      sel.innerHTML = "";
+      const available = (encoders && encoders.available) || [];
+      const all = (encoders && encoders.all) || [];
+      const opts = ["auto"].concat(all);
+      opts.forEach(function (name) {
+        const opt = document.createElement("option");
+        opt.value = name;
+        // "auto" is always selectable
+        const unsupported = name !== "auto" && available.indexOf(name) === -1;
+        opt.disabled = unsupported;
+        opt.textContent = name + (unsupported ? " (미지원)" : "");
+        sel.append(opt);
+      });
+      document.getElementById("activeEncoder").textContent =
+        (encoders && encoders.active) || "-";
+    }
+
+    // ---- Height field (preset vs custom) ----
+    const heightSel = document.getElementById("heightSel");
+    const heightCustomWrap = document.getElementById("heightCustomWrap");
+    const heightCustom = document.getElementById("heightCustom");
+
+    heightSel.addEventListener("change", function () {
+      heightCustomWrap.hidden = heightSel.value !== "custom";
+    });
+
+    function setHeight(h) {
+      const presets = ["0", "480", "720", "1080"];
+      const hs = String(h);
+      if (presets.indexOf(hs) !== -1) {
+        heightSel.value = hs;
+        heightCustomWrap.hidden = true;
+      } else {
+        heightSel.value = "custom";
+        heightCustom.value = hs;
+        heightCustomWrap.hidden = false;
+      }
+    }
+
+    function getHeight() {
+      if (heightSel.value === "custom") {
+        return Number(heightCustom.value) || 0;
+      }
+      return Number(heightSel.value);
+    }
+
+    // ---- Prefill the whole form ----
+    function fillForm(c) {
+      // streams
+      streamRowsEl.innerHTML = "";
+      (c.streams || []).forEach(addStreamRow);
+      if (!(c.streams || []).length) addStreamRow();
+
+      buildEncoderSelect(c.encoders);
+      document.getElementById("encoder").value = c.encoder || "auto";
+
+      setHeight(c.height != null ? c.height : 720);
+      document.getElementById("fps").value = c.fps != null ? c.fps : 30;
+      document.getElementById("video_bitrate").value = c.video_bitrate || "";
+
+      document.getElementById("audio_mode").value = c.audio_mode || "aac";
+      document.getElementById("audio_bitrate").value = c.audio_bitrate || "";
+
+      document.getElementById("hls_time").value = c.hls_time != null ? c.hls_time : 2;
+      document.getElementById("hls_list_size").value = c.hls_list_size != null ? c.hls_list_size : 6;
+      document.getElementById("buffer_seconds").value = c.buffer_seconds != null ? c.buffer_seconds : 6;
+      document.getElementById("catch_up_rate").value = c.catch_up_rate != null ? c.catch_up_rate : 1.2;
+
+      document.getElementById("grid_columns").value = c.grid_columns != null ? String(c.grid_columns) : "auto";
+
+      document.getElementById("idle_timeout").value = c.idle_timeout != null ? c.idle_timeout : 30;
+
+      const auth = c.auth || {};
+      document.getElementById("auth_enabled").checked = !!auth.enabled;
+      document.getElementById("auth_user").value = auth.user || "";
+      document.getElementById("auth_password").value = "";
+      document.getElementById("pwSet").textContent = auth.password_set ? "예" : "아니오";
+    }
+
+    // ---- Build payload from form ----
+    function buildPayload() {
+      const streams = collectStreams();
+      if (streams === null) return null;
+
+      const payload = {
+        encoder: document.getElementById("encoder").value,
+        height: getHeight(),
+        fps: Number(document.getElementById("fps").value),
+        video_bitrate: document.getElementById("video_bitrate").value.trim(),
+        audio_mode: document.getElementById("audio_mode").value,
+        audio_bitrate: document.getElementById("audio_bitrate").value.trim(),
+        hls_time: Number(document.getElementById("hls_time").value),
+        hls_list_size: Number(document.getElementById("hls_list_size").value),
+        buffer_seconds: Number(document.getElementById("buffer_seconds").value),
+        catch_up_rate: Number(document.getElementById("catch_up_rate").value),
+        grid_columns: document.getElementById("grid_columns").value,
+        idle_timeout: Number(document.getElementById("idle_timeout").value),
+        streams: streams,
+        auth: {
+          enabled: document.getElementById("auth_enabled").checked,
+          user: document.getElementById("auth_user").value.trim(),
+        },
+      };
+
+      // password only sent when actually entered
+      const pw = document.getElementById("auth_password").value;
+      if (pw) payload.auth.password = pw;
+
+      return payload;
+    }
+
+    // ---- Save ----
+    form.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      const payload = buildPayload();
+      if (payload === null) {
+        toast("입력값을 확인하세요.", "error");
+        return;
+      }
+      const saveBtn = document.getElementById("saveBtn");
+      saveBtn.disabled = true;
+      try {
+        const res = await fetch("/api/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        config = await res.json();
+        fillForm(config);
+        toast("저장되었습니다. 일부 변경은 실행 중 스트림을 재시작합니다.", "ok");
+      } catch (err) {
+        toast("저장 실패: " + err.message, "error");
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+
+    // ---- Boot ----
+    (async function () {
+      try {
+        const res = await fetch("/api/config");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        config = await res.json();
+        fillForm(config);
+      } catch (err) {
+        toast("설정을 불러오지 못했습니다: " + err.message, "error");
+      }
+    })();
+  })();
+  </script>
+</body>
+</html>

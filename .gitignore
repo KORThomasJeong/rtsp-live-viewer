@@ -1,0 +1,27 @@
+# Python 캐시/바이트코드
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# 가상환경
+.venv/
+venv/
+env/
+
+# 런타임 상태/설정(웹 UI에서 저장되는 settings.json 등)
+data/*
+!data/.gitkeep
+
+# HLS 출력 마운트(런타임 생성, 커밋 불필요)
+_hls/
+
+# 로그
+*.log
+
+# OS/에디터 메타
+.DS_Store
+.idea/
+.vscode/
+
+# docs/ 이미지는 README가 참조하므로 무시하지 않는다(*.png 커밋 유지)
